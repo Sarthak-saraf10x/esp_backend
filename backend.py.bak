@@ -1,0 +1,442 @@
+from flask import Flask, request, Response, jsonify
+import tempfile
+import os
+import shutil
+import subprocess
+import wave
+import numpy as np
+from faster_whisper import WhisperModel
+import importlib
+from google import genai
+from google.genai import types
+import piper
+import time
+import io
+import struct
+import unicodedata
+import asyncio
+import json
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.session import ClientSession
+
+app = Flask(__name__)
+
+print("Loading models...")
+
+whisper_model = WhisperModel("base.en", device="cpu", compute_type="int8")
+piper_voice = piper.PiperVoice.load("./en_US-lessac-medium.onnx")
+
+gemini_client = genai.Client(api_key="AIzaSyBbxn4Y5xzS9RgNSV6FtTjjl63wJopMMSs")
+
+print("Models loaded. Server ready.")
+
+sessions = {}
+
+def get_pruned_history(history, keep=20):
+    if not history:
+        return []
+    pruned = list(history[-keep:])
+    while pruned:
+        if pruned[0].role == 'user':
+            has_text = any(hasattr(p, 'text') and p.text is not None for p in pruned[0].parts)
+            if has_text:
+                break
+        pruned.pop(0)
+    return pruned
+async def ask_gemini_with_mcp(user_text, session_id):
+    server_params = StdioServerParameters(
+        command="./.venv/bin/python",
+        args=["mcp_server.py"],
+        env=os.environ.copy()
+    )
+    
+    history = sessions.get(session_id, [])
+    
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            mcp_tools = await session.list_tools()
+            
+            gemini_tools = []
+            for t in mcp_tools.tools:
+                gemini_tools.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.inputSchema
+                })
+            
+            system_instruction = (
+                "You are an Autonomous Productivity Agent and voice assistant. You can engage in general conversation, "
+                "answer questions, and perform complex tasks like generating documents (reports, emails, etc.).\\n"
+                "When asked to write or create something:\\n"
+                "1. If you need background information, use the web_search tool to gather facts first.\\n"
+                "2. If you need specific personal details or scope from the user, ASK clarifying questions (interview the user) before generating the document.\\n"
+                "3. Once you have all information, use the generate_document tool to create the final .docx or .pdf file, and tell the user it is ready.\\n"
+                "Remember your responses will be spoken aloud, so keep your conversational replies concise. "
+                "IMPORTANT: If the user says goodbye, or if you are wrapping up the conversation naturally, "
+                "you MUST include the exact keyword [END_CONVO] in your response."
+            )
+            
+            print(f"Sending query to Gemini with {len(gemini_tools)} tools...")
+            
+            chat = gemini_client.chats.create(
+                model="gemini-2.5-flash",
+                history=history,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0,
+                    tools=[{"function_declarations": gemini_tools}] if gemini_tools else None
+                )
+            )
+            
+            response = chat.send_message(user_text)
+            
+            if response.function_calls:
+                tool_responses = []
+                for tool_call in response.function_calls:
+                    print(f"Gemini requested tool: {tool_call.name} with args: {tool_call.args}")
+                    try:
+                        # Convert args to dict if necessary, genai usually provides a dict
+                        result = await session.call_tool(
+                            tool_call.name,
+                            tool_call.args
+                        )
+                        result_text = result.content[0].text if result.content else "Executed successfully."
+                        print(f"Tool returned: {result_text}")
+                    except Exception as e:
+                        print(f"Tool error: {e}")
+                        result_text = f"Error: {e}"
+                        
+                    tool_responses.append(types.Part.from_function_response(
+                        name=tool_call.name,
+                        response={"result": result_text}
+                    ))
+                
+                print("Getting final response...")
+                try:
+                    final_response = chat.send_message(tool_responses)
+                    sessions[session_id] = get_pruned_history(chat.get_history())
+                    return final_response.text
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                        return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                    raise e
+            
+            sessions[session_id] = get_pruned_history(chat.get_history())
+            return response.text
+
+def clean_text_for_header(text):
+    """Remove or replace characters that can't be in HTTP headers"""
+    cleaned = ''.join(char for char in text if ord(char) < 128)
+    cleaned = ' '.join(cleaned.split())
+    return cleaned.strip()
+
+def generate_audio_stream(text):
+    """Generator function to stream audio chunks"""
+    print(f"Generating streaming audio for: {text}")
+    
+    raw_path = None
+    output_path = None
+    
+    try:
+        # Create temporary files
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as raw_temp:
+            raw_path = raw_temp.name
+        
+        with tempfile.NamedTemporaryFile(suffix="_8khz.wav", delete=False) as out_temp:
+            output_path = out_temp.name
+        
+        # Generate audio with Piper
+        with wave.open(raw_path, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(22050)
+            
+            # Synthesize audio stream
+            audio_stream = piper_voice.synthesize(text)
+            
+            # Process each audio chunk
+            for audio_chunk in audio_stream:
+                audio_data = None
+                
+                # Try each possible attribute that might contain audio data
+                if hasattr(audio_chunk, 'audio_int16_bytes') and audio_chunk.audio_int16_bytes:
+                    audio_data = audio_chunk.audio_int16_bytes
+                elif hasattr(audio_chunk, '_audio_int16_bytes') and audio_chunk._audio_int16_bytes:
+                    audio_data = audio_chunk._audio_int16_bytes
+                elif hasattr(audio_chunk, 'audio_int16_array') and audio_chunk.audio_int16_array is not None:
+                    audio_data = audio_chunk.audio_int16_array.tobytes()
+                elif hasattr(audio_chunk, '_audio_int16_array') and audio_chunk._audio_int16_array is not None:
+                    audio_data = audio_chunk._audio_int16_array.tobytes()
+                elif hasattr(audio_chunk, 'audio_float_array') and audio_chunk.audio_float_array is not None:
+                    float_array = audio_chunk.audio_float_array
+                    int16_array = (float_array * 32767).astype(np.int16)
+                    audio_data = int16_array.tobytes()
+                else:
+                    continue
+                
+                if audio_data:
+                    wav_file.writeframes(audio_data)
+        
+        # Check if we actually wrote audio data
+        raw_size = os.path.getsize(raw_path)
+        print(f"Raw audio generated, size: {raw_size} bytes")
+        
+        if raw_size <= 44:  # Just the header
+            print("ERROR: No audio data generated")
+            generate_beep_wav(raw_path)
+            print("Generated fallback beep")
+        
+        # Convert to 16kHz for ESP32 with explicit WAV format
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-i", raw_path,
+            "-ar", "16000",
+            "-ac", "1",
+            "-acodec", "pcm_s16le",
+            "-f", "wav",
+            "-bitexact",  # Force standard WAV header
+            "-flags", "+bitexact",
+            "-fflags", "+bitexact",
+            "-y",
+            output_path
+        ]
+        
+        print("Converting audio with ffmpeg...")
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"FFmpeg error: {result.stderr}")
+            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 44:
+                with open(raw_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(512)
+                        if not chunk:
+                            break
+                        yield chunk
+            return
+        
+        # Verify the converted file has correct header
+        with open(output_path, 'rb') as f:
+            header = f.read(12)
+            if header[0:4] != b'RIFF':
+                print("ERROR: Converted file missing RIFF header")
+                # Try one more time with different ffmpeg options
+                ffmpeg_cmd = [
+                    "ffmpeg",
+                    "-i", raw_path,
+                    "-ar", "16000",
+                    "-ac", "1",
+                    "-c:a", "pcm_s16le",
+                    "-f", "wav",
+                    "-write_bext", "0",
+                    "-y",
+                    output_path
+                ]
+                subprocess.run(ffmpeg_cmd, capture_output=True)
+        
+        converted_size = os.path.getsize(output_path)
+        print(f"Converted audio size: {converted_size} bytes")
+        
+        if converted_size <= 44:
+            print("ERROR: Converted audio too small")
+            return
+        
+        # Read the converted file and stream it
+        with open(output_path, 'rb') as f:
+            chunk_size = 512
+            total_sent = 0
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+                total_sent += len(chunk)
+                
+        print(f"Audio streaming complete, sent {total_sent} bytes")
+                
+    except Exception as e:
+        print(f"Error in generate_audio_stream: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            beep_path = generate_beep_response()
+            with open(beep_path, 'rb') as f:
+                while True:
+                    chunk = f.read(512)
+                    if not chunk:
+                        break
+                    yield chunk
+        except:
+            yield b''
+        
+    finally:
+        for path in [raw_path, output_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except Exception as e:
+                    print(f"Error cleaning up {path}: {e}")
+
+def generate_beep_wav(output_path):
+    """Generate a simple beep as fallback audio"""
+    import math
+    
+    sample_rate = 16000
+    duration = 1.0
+    frequency = 440
+    
+    with wave.open(output_path, 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        
+        num_samples = int(sample_rate * duration)
+        for i in range(num_samples):
+            t = float(i) / sample_rate
+            value = int(32767 * math.sin(2 * math.pi * frequency * t))
+            wav_file.writeframes(struct.pack('<h', value))
+
+def generate_beep_response():
+    """Generate a beep response file"""
+    beep_path = tempfile.NamedTemporaryFile(suffix="_beep.wav", delete=False).name
+    generate_beep_wav(beep_path)
+    
+    output_path = beep_path.replace('_beep.wav', '_beep_8khz.wav')
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", beep_path,
+        "-ar", "16000",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
+        "-f", "wav",
+        "-y",
+        output_path
+    ]
+    subprocess.run(ffmpeg_cmd, capture_output=True)
+    
+    if os.path.exists(beep_path):
+        os.unlink(beep_path)
+    
+    return output_path
+
+@app.route('/audio_stream', methods=['POST'])
+def process_audio_stream():
+    print("\n--- New Streaming Request Received ---")
+    print(f"Headers: {dict(request.headers)}")
+    
+    session_id = request.headers.get("X-Session-Id", "default")
+    
+    # Read the raw data for debugging
+    raw_data = request.get_data()
+    print(f"Raw data size: {len(raw_data)} bytes")
+    
+    if 'file' not in request.files:
+        print("ERROR: No file in request")
+        return jsonify({"error": "No audio file"}), 400
+    
+    audio_file = request.files['file']
+    
+    if audio_file.filename == '':
+        print("ERROR: Empty filename")
+        return jsonify({"error": "Empty filename"}), 400
+    
+    print(f"Received file: {audio_file.filename}")
+    print(f"Content type: {audio_file.content_type}")
+    print(f"Content length: {audio_file.content_length}")
+    
+    # Save the file and check its size
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        audio_file.save(tmp.name)
+        input_path = tmp.name
+        
+        saved_size = os.path.getsize(input_path)
+        print(f"Saved file size: {saved_size} bytes")
+        
+        if saved_size == 0:
+            print("ERROR: Saved file is empty")
+            return jsonify({"error": "Empty audio file"}), 400
+    
+    try:
+        # Transcribe
+        print("Transcribing...")
+        segments, info = whisper_model.transcribe(input_path, language="en")
+        user_text = " ".join(seg.text for seg in segments).strip()
+        print(f"User said: '{user_text}'")
+        
+        if not user_text:
+            print("No speech detected")
+            return jsonify({"error": "No speech detected"}), 400
+        
+        # Get LLM response using MCP
+        print("Querying Gemini with MCP...")
+        try:
+            bot_text = asyncio.run(ask_gemini_with_mcp(user_text, session_id))
+        except Exception as e:
+            print(f"MCP flow failed, falling back to basic chat: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+            else:
+                try:
+                    history = sessions.get(session_id, [])
+                    chat = gemini_client.chats.create(
+                        model='gemini-2.5-flash',
+                        history=history
+                    )
+                    response = chat.send_message(user_text)
+                    bot_text = response.text
+                    sessions[session_id] = get_pruned_history(chat.get_history())
+                except Exception as fallback_e:
+                    if "429" in str(fallback_e) or "RESOURCE_EXHAUSTED" in str(fallback_e):
+                        bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                    else:
+                        raise fallback_e
+            
+        print(f"Bot: {bot_text}")
+        
+        is_end_convo = "[END_CONVO]" in bot_text
+        if is_end_convo:
+            bot_text = bot_text.replace("[END_CONVO]", "").strip()
+            if not bot_text:
+                bot_text = "Goodbye."
+        
+        # Clean the bot text for header
+        header_text = clean_text_for_header(bot_text)
+        print(f"Header text: {header_text}")
+        
+        headers = {
+            "X-Bot-Text": header_text,
+            "Cache-Control": "no-cache",
+            "Content-Disposition": "inline"
+        }
+        
+        if is_end_convo:
+            headers["X-End-Conversation"] = "true"
+        
+        # Return streaming response
+        return Response(
+            generate_audio_stream(bot_text),
+            mimetype="audio/wav",
+            headers=headers
+        )
+        
+    except Exception as e:
+        print("SERVER ERROR:", e)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+        
+    finally:
+        if os.path.exists(input_path):
+            os.unlink(input_path)
+
+@app.route('/audio', methods=['POST'])
+def process_audio():
+    return jsonify({"error": "Use /audio_stream endpoint"}), 400
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
