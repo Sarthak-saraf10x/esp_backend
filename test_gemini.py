@@ -1,6 +1,7 @@
 import google.generativeai as genai
+from app.config import Config
 
-genai.configure(api_key="AIzaSyDywvUeobY84f0X-qlYrGTblxQUYiStXUE")
+genai.configure(api_key=Config.GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 # Test standard function calling

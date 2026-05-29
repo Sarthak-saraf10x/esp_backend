@@ -48,6 +48,25 @@ async def get_weather(location: str) -> str:
     except Exception as e:
         return f"Error fetching weather for {location}: {str(e)}"
 
+@mcp.tool()
+async def get_location() -> str:
+    """Get the current physical location of the user (city, region, country, latitude, longitude) based on their IP address."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://ip-api.com/json/")
+            data = response.json()
+            if data.get("status") == "success":
+                city = data.get("city", "Unknown City")
+                region = data.get("regionName", "Unknown Region")
+                country = data.get("country", "Unknown Country")
+                lat = data.get("lat", "Unknown")
+                lon = data.get("lon", "Unknown")
+                return f"User is currently located in {city}, {region}, {country}. (Latitude: {lat}, Longitude: {lon})"
+            else:
+                return "Could not determine current location."
+    except Exception as e:
+        return f"Error fetching location: {str(e)}"
+
 import os
 import sys
 
