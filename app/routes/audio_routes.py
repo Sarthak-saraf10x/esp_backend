@@ -63,6 +63,8 @@ def process_audio_stream():
             
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+            elif "503" in str(e) or "UNAVAILABLE" in str(e):
+                bot_text = "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
             else:
                 try:
                     history = sessions.get(session_id, [])
@@ -76,6 +78,8 @@ def process_audio_stream():
                 except Exception as fallback_e:
                     if "429" in str(fallback_e) or "RESOURCE_EXHAUSTED" in str(fallback_e):
                         bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                    elif "503" in str(fallback_e) or "UNAVAILABLE" in str(fallback_e):
+                        bot_text = "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
                     else:
                         raise fallback_e
             

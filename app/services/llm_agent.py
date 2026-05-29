@@ -38,11 +38,12 @@ async def ask_gemini_with_mcp(user_text, session_id):
             
             system_instruction = (
                 "You are an Autonomous Productivity Agent and voice assistant. You can engage in general conversation, "
-                "answer questions, and perform complex tasks like generating documents (reports, emails, etc.).\n"
+                "answer questions, and perform complex tasks like generating documents (reports, emails, etc.) or sending texts to the user's phone clipboard.\n"
                 "When asked to write or create something:\n"
                 "1. If you need background information, use the web_search tool to gather facts first.\n"
-                "2. If you need specific personal details or scope from the user, ASK clarifying questions (interview the user) before generating the document.\n"
-                "3. Once you have all information, use the generate_document tool to create the final .docx or .pdf file, and tell the user it is ready.\n"
+                "2. If you need specific personal details or scope from the user, ASK clarifying questions (interview the user) before generating.\n"
+                "3. If the user asks for a short message, draft, or text to be copied/sent to their phone (e.g. 'Draft a short text saying I will be 10 minutes late and copy it'), use the sync_text_to_clipboard tool. Do NOT create a full document for short messages.\n"
+                "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to their phone via Telegram.\n"
                 "Remember your responses will be spoken aloud, so keep your conversational replies concise. "
                 "IMPORTANT: If the user says goodbye, or if you are wrapping up the conversation naturally, "
                 "you MUST include the exact keyword [END_CONVO] in your response."
@@ -65,6 +66,8 @@ async def ask_gemini_with_mcp(user_text, session_id):
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
                 raise e
             
             if response.function_calls:
@@ -95,6 +98,8 @@ async def ask_gemini_with_mcp(user_text, session_id):
                 except Exception as e:
                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                         return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                    if "503" in str(e) or "UNAVAILABLE" in str(e):
+                        return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
                     raise e
             
             sessions[session_id] = get_pruned_history(chat.get_history())

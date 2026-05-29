@@ -77,8 +77,52 @@ def web_search(query: str, max_results: int = 3) -> str:
     except Exception as e:
         return f"Error performing web search: {str(e)}"
 
+async def send_document_to_phone(filepath: str, caption: str = "Here is your generated document.") -> str:
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not bot_token or not chat_id or bot_token == "your_telegram_bot_token_here":
+        return "Telegram credentials not configured."
+        
+    url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+    try:
+        async with httpx.AsyncClient() as client:
+            with open(filepath, 'rb') as f:
+                files = {'document': (os.path.basename(filepath), f)}
+                data = {'chat_id': chat_id, 'caption': caption}
+                response = await client.post(url, data=data, files=files)
+                response.raise_for_status()
+                return "Successfully delivered to your phone via Telegram."
+    except Exception as e:
+        return f"Document generated but delivery failed: {str(e)}"
+
 @mcp.tool()
-def generate_document(title: str, content: str, file_type: str) -> str:
+async def sync_text_to_clipboard(text: str) -> str:
+    """Send text directly to the user's smartphone clipboard.
+    
+    Args:
+        text: The text message to copy to the clipboard.
+    """
+    api_key = os.environ.get("JOIN_API_KEY")
+    device_id = os.environ.get("JOIN_DEVICE_ID")
+    if not api_key or not device_id or api_key == "your_join_api_key_here":
+        return "Join API credentials not configured."
+        
+    url = "https://joinjoaomgcd.appspot.com/_ah/api/messaging/v1/sendPush"
+    params = {
+        'apikey': api_key,
+        'deviceId': device_id,
+        'clipboard': text
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return "Successfully copied to your phone's clipboard."
+    except Exception as e:
+        return f"Error copying to clipboard: {str(e)}"
+
+@mcp.tool()
+async def generate_document(title: str, content: str, file_type: str) -> str:
     """Generate a formatted document (docx or pdf) and save it to the server.
     
     Args:
@@ -89,14 +133,16 @@ def generate_document(title: str, content: str, file_type: str) -> str:
     try:
         if file_type.lower() == 'docx':
             path = generate_docx(title, content)
-            return f"Successfully generated Word document at {path}"
+            msg = f"Successfully generated Word document at {path}."
         elif file_type.lower() == 'pdf':
             path = generate_pdf(title, content)
-            return f"Successfully generated PDF document at {path}"
+            msg = f"Successfully generated PDF document at {path}."
         else:
             return "Unsupported file type. Use 'docx' or 'pdf'."
+            
+        delivery_msg = await send_document_to_phone(path, caption=f"Here is your generated document: {title}")
+        return f"{msg} {delivery_msg}"
     except Exception as e:
         return f"Error generating document: {str(e)}"
-
 if __name__ == "__main__":
     mcp.run(transport='stdio')
