@@ -5,3 +5,5 @@ __pycache__/
 *.onnx
 *.onnx.json
 backend.py.bak
+documents/
+app/__pycache__/
