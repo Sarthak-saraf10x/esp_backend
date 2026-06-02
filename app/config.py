@@ -13,3 +13,4 @@ class Config:
     JOIN_API_KEY = os.environ.get("JOIN_API_KEY")
     JOIN_DEVICE_ID = os.environ.get("JOIN_DEVICE_ID")
     MONGODB_URI = os.environ.get("MONGODB_URI")
+    BOT_SECRET_KEY = os.environ.get("BOT_SECRET_KEY")

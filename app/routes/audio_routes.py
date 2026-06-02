@@ -6,6 +6,7 @@ from app.services.transcription import transcribe_audio
 from app.services.llm_agent import ask_gemini_with_mcp, sessions, gemini_client
 from app.services.audio_generation import generate_audio_stream
 from app.utils.helpers import clean_text_for_header, get_pruned_history
+from app.config import Config
 
 audio_bp = Blueprint('audio', __name__)
 
@@ -15,6 +16,11 @@ def process_audio_stream():
     print(f"Headers: {dict(request.headers)}")
     
     session_id = request.headers.get("X-Session-Id", "default")
+    
+    secret_key = request.headers.get("X-Bot-Secret-Key")
+    if secret_key != Config.BOT_SECRET_KEY:
+        print("ERROR: Unauthorized access attempt")
+        return jsonify({"error": "Unauthorized"}), 401
     
     raw_data = request.get_data()
     print(f"Raw data size: {len(raw_data)} bytes")
