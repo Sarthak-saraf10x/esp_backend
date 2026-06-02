@@ -131,12 +131,8 @@ def generate_audio_stream(text):
             print(f"FFmpeg error: {result.stderr}")
             if os.path.exists(raw_path) and os.path.getsize(raw_path) > 44:
                 with open(raw_path, 'rb') as f:
-                    while True:
-                        chunk = f.read(512)
-                        if not chunk:
-                            break
-                        yield chunk
-            return
+                    return f.read()
+            return b''
         
         # Verify the converted file has correct header
         with open(output_path, 'rb') as f:
@@ -162,20 +158,14 @@ def generate_audio_stream(text):
         
         if converted_size <= 44:
             print("ERROR: Converted audio too small")
-            return
+            return b''
         
-        # Read the converted file and stream it
+        # Read the converted file and return it
         with open(output_path, 'rb') as f:
-            chunk_size = 512
-            total_sent = 0
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
-                total_sent += len(chunk)
+            audio_bytes = f.read()
                 
-        print(f"Audio streaming complete, sent {total_sent} bytes")
+        print(f"Audio generation complete, returning {len(audio_bytes)} bytes")
+        return audio_bytes
                 
     except Exception as e:
         print(f"Error in generate_audio_stream: {e}")
@@ -184,13 +174,9 @@ def generate_audio_stream(text):
         try:
             beep_path = generate_beep_response()
             with open(beep_path, 'rb') as f:
-                while True:
-                    chunk = f.read(512)
-                    if not chunk:
-                        break
-                    yield chunk
+                return f.read()
         except:
-            yield b''
+            return b''
         
     finally:
         for path in [raw_path, output_path]:

@@ -2,7 +2,10 @@ def clean_text_for_header(text):
     """Remove or replace characters that can't be in HTTP headers"""
     cleaned = ''.join(char for char in text if ord(char) < 128)
     cleaned = ' '.join(cleaned.split())
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+    if len(cleaned) > 200:
+        cleaned = cleaned[:197] + "..."
+    return cleaned
 
 def get_pruned_history(history, keep=20):
     if not history:

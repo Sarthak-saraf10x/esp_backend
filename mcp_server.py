@@ -70,10 +70,13 @@ async def get_location() -> str:
 import os
 import sys
 
-# Add local path so we can import doc_generator
+# Add local path so we can import doc_generator and db
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from doc_generator import generate_docx, generate_pdf
+from app.utils.db import log_document
 from duckduckgo_search import DDGS
+
+import wikipedia
 
 @mcp.tool()
 def web_search(query: str, max_results: int = 3) -> str:
@@ -83,18 +86,52 @@ def web_search(query: str, max_results: int = 3) -> str:
         query: The search query string.
         max_results: Maximum number of results to return.
     """
+    results_text = []
+    
+    # 1. Try Wikipedia
     try:
-        results = DDGS().text(query, max_results=max_results)
-        if not results:
-            return "No results found."
+        wiki_search = wikipedia.search(query, results=max_results)
+        for w in wiki_search:
+            try:
+                page = wikipedia.page(w, auto_suggest=False)
+                results_text.append(f"Source: Wikipedia\\nTitle: {page.title}\\nSummary: {page.summary[:500]}...")
+            except:
+                pass
+    except Exception:
+        pass
         
-        formatted_results = []
-        for i, res in enumerate(results):
-            formatted_results.append(f"Result {i+1}:\\nTitle: {res['title']}\\nSummary: {res['body']}\\nLink: {res['href']}")
-            
-        return "\\n\\n".join(formatted_results)
-    except Exception as e:
-        return f"Error performing web search: {str(e)}"
+    # 2. Try Nominatim for places
+    if not results_text or any(x in query.lower() for x in [' in ', ' near ', ' at ', 'restaurants', 'hotels', 'coffee']):
+        try:
+            import urllib.parse
+            import urllib.request
+            import json
+            req = urllib.request.Request(
+                f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit={max_results}",
+                headers={'User-Agent': 'ESP32AgentBot/1.0'}
+            )
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                for item in data:
+                    results_text.append(f"Source: OpenStreetMap\\nLocation: {item.get('display_name')}\\nType: {item.get('type')}")
+        except Exception:
+            pass
+
+    # 3. Fallback to DDGS
+    if not results_text:
+        try:
+            from duckduckgo_search import DDGS
+            ddgs_results = DDGS().text(query, max_results=max_results)
+            if ddgs_results:
+                for res in ddgs_results:
+                    results_text.append(f"Source: DuckDuckGo\\nTitle: {res.get('title', '')}\\nSummary: {res.get('body', '')}")
+        except Exception:
+            pass
+
+    if not results_text:
+        return "No results found. The search APIs might be blocking the request or rate-limiting."
+        
+    return "\\n\\n".join(results_text)
 
 async def send_document_to_phone(filepath: str, caption: str = "Here is your generated document.") -> str:
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -141,13 +178,14 @@ async def sync_text_to_clipboard(text: str) -> str:
         return f"Error copying to clipboard: {str(e)}"
 
 @mcp.tool()
-async def generate_document(title: str, content: str, file_type: str) -> str:
+async def generate_document(title: str, content: str, file_type: str, summary: str) -> str:
     """Generate a formatted document (docx or pdf) and save it to the server.
     
     Args:
         title: The title of the document.
         content: The text content of the document (markdown supported).
         file_type: 'docx' or 'pdf'
+        summary: A short summary of the document for the database registry.
     """
     try:
         if file_type.lower() == 'docx':
@@ -159,8 +197,11 @@ async def generate_document(title: str, content: str, file_type: str) -> str:
         else:
             return "Unsupported file type. Use 'docx' or 'pdf'."
             
+        # Log to database
+        log_document("default_user", f"{file_type.upper()} Document", path, summary)
+        
         delivery_msg = await send_document_to_phone(path, caption=f"Here is your generated document: {title}")
-        return f"{msg} {delivery_msg}"
+        return f"{msg} Registry updated. {delivery_msg}"
     except Exception as e:
         return f"Error generating document: {str(e)}"
 if __name__ == "__main__":
