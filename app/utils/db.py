@@ -1,9 +1,9 @@
 import os
 import datetime
 from pymongo import MongoClient
-
+from app.config import Config
 # Create a client
-client = MongoClient(os.environ.get("MONGODB_URI", "mongodb+srv://gotosarthaks_db_user:eXoGC2wIbpuhYaWJ@esp32.nnpxwca.mongodb.net/?appName=esp32"))
+client = MongoClient(Config.MONGODB_URI)
 db = client["esp32_agent_db"]
 users_collection = db["users"]
 documents_collection = db["generated_documents"]
