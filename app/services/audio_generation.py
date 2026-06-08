@@ -7,9 +7,15 @@ import subprocess
 import piper
 from app.config import Config
 
-print("Loading Piper Model...")
-piper_voice = piper.PiperVoice.load(Config.PIPER_VOICE_PATH)
-print("Piper Model loaded.")
+piper_voice = None
+
+def get_piper_voice():
+    global piper_voice
+    if piper_voice is None:
+        print("Loading Piper Model...")
+        piper_voice = piper.PiperVoice.load(Config.PIPER_VOICE_PATH)
+        print("Piper Model loaded.")
+    return piper_voice
 
 def generate_beep_wav(output_path):
     """Generate a simple beep as fallback audio"""
@@ -75,7 +81,7 @@ def generate_audio_stream(text):
             wav_file.setframerate(22050)
             
             # Synthesize audio stream
-            audio_stream = piper_voice.synthesize(text)
+            audio_stream = get_piper_voice().synthesize(text)
             
             # Process each audio chunk
             for audio_chunk in audio_stream:
