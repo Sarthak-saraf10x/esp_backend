@@ -5,8 +5,13 @@ WORKDIR /app
 # Install system dependencies required for audio processing (ffmpeg) and building packages
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    wget \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Download the Piper TTS ONNX model and config directly
+RUN wget -O en_US-lessac-medium.onnx -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+RUN wget -O en_US-lessac-medium.onnx.json -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
