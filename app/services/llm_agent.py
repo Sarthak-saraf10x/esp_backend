@@ -1,0 +1,131 @@
+import os
+import asyncio
+from google import genai
+from google.genai import types
+import sys
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.session import ClientSession
+from app.config import Config
+from app.utils.helpers import get_pruned_history
+
+from app.utils.db import get_user_profile
+
+print("Loading Gemini Model...")
+gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
+print("Gemini Model loaded.")
+
+sessions = {}
+
+async def ask_gemini_with_mcp(user_text, session_id):
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=[Config.MCP_SERVER_SCRIPT],
+        env=os.environ.copy()
+    )
+    
+    history = sessions.get(session_id, [])
+    
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            mcp_tools = await session.list_tools()
+            
+            gemini_tools = []
+            for t in mcp_tools.tools:
+                gemini_tools.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.inputSchema
+                })
+            
+            # Fetch user profile
+            profile = get_user_profile()
+            profile_text = ""
+            if profile:
+                profile_text = f"\nUser Profile:\nName: {profile.get('full_name', '')}\nRole: {profile.get('role', '')}\nSignature: {profile.get('document_signature', '')}\n"
+
+            system_instruction = (
+                "You are an Autonomous Productivity Agent and voice assistant. You can engage in general conversation, "
+                "answer questions, and perform complex tasks like generating documents (reports, emails, etc.) or sending texts to the user's phone clipboard.\n"
+                "When asked to write or create something:\n"
+                "1. If you need background information, use the web_search tool to gather facts first.\n"
+                "2. If you need specific personal details or scope from the user, ASK clarifying questions (interview the user) before generating.\n"
+                "3. If the user asks for a short message, draft, or text to be copied/sent to their phone (e.g. 'Draft a short text saying I will be 10 minutes late and copy it'), use the sync_text_to_clipboard tool. Do NOT create a full document for short messages.\n"
+                "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to their phone via Telegram.\n"
+                "5. If the user asks for weather, restaurants, or local information without specifying a location, use the get_location tool to find their current location first.\n"
+                f"{profile_text}"
+                "Remember your responses will be spoken aloud, so keep your conversational replies concise. "
+                "IMPORTANT: If the user says goodbye, or if you are wrapping up the conversation naturally, "
+                "you MUST include the exact keyword [END_CONVO] in your response."
+            )
+            
+            print(f"Sending query to Gemini with {len(gemini_tools)} tools...")
+            
+            chat = gemini_client.chats.create(
+                model="gemini-2.5-flash",
+                history=history,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0,
+                    tools=[{"function_declarations": gemini_tools}] if gemini_tools else None
+                )
+            )
+            
+            # Helper function for sending message with retries
+            def send_with_retry(content, max_retries=3):
+                for attempt in range(max_retries):
+                    try:
+                        return chat.send_message(content)
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            raise e
+                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e) or "UNAVAILABLE" in str(e):
+                            import time
+                            time.sleep(2)
+                        else:
+                            raise e
+
+            try:
+                response = send_with_retry(user_text)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
+                raise e
+            
+            while response.function_calls:
+                tool_responses = []
+                for tool_call in response.function_calls:
+                    print(f"Gemini requested tool: {tool_call.name} with args: {tool_call.args}")
+                    try:
+                        result = await session.call_tool(
+                            tool_call.name,
+                            tool_call.args
+                        )
+                        result_text = result.content[0].text if result.content else "Executed successfully."
+                        print(f"Tool returned: {result_text}")
+                    except Exception as e:
+                        print(f"Tool error: {e}")
+                        result_text = f"Error: {e}"
+                        
+                    tool_responses.append(types.Part.from_function_response(
+                        name=tool_call.name,
+                        response={"result": result_text}
+                    ))
+                
+                print("Getting next response...")
+                try:
+                    response = send_with_retry(tool_responses)
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                        return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
+                    if "503" in str(e) or "UNAVAILABLE" in str(e):
+                        return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
+                    raise e
+            
+            sessions[session_id] = get_pruned_history(chat.get_history())
+            if response.text:
+                return response.text
+            return "I have completed the task."

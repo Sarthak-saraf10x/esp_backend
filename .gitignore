@@ -1,0 +1,11 @@
+.env
+.venv/
+venv/
+*.pyc
+*.onnx
+*.onnx.json
+backend.py.bak
+documents/
+__pycache__/
+**/__pycache__/
+test_deployment.py
