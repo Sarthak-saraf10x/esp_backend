@@ -2,6 +2,7 @@ import os
 import asyncio
 from google import genai
 from google.genai import types
+import sys
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 from app.config import Config
@@ -17,7 +18,7 @@ sessions = {}
 
 async def ask_gemini_with_mcp(user_text, session_id):
     server_params = StdioServerParameters(
-        command="./venv/bin/python",
+        command=sys.executable,
         args=[Config.MCP_SERVER_SCRIPT],
         env=os.environ.copy()
     )
