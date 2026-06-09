@@ -55,7 +55,7 @@ async def ask_gemini_with_mcp(user_text, session_id):
                 "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to their phone via Telegram.\n"
                 "5. If the user asks for weather, restaurants, or local information without specifying a location, use the get_location tool to find their current location first.\n"
                 f"{profile_text}"
-                "Remember your responses will be spoken aloud, so keep your conversational replies concise. "
+                "Remember your responses will be spoken aloud! To minimize processing delay, keep your conversational replies EXTREMELY concise (1-2 short sentences maximum). Never use bullet points or long paragraphs unless explicitly asked.\n"
                 "IMPORTANT: If the user says goodbye, or if you are wrapping up the conversation naturally, "
                 "you MUST include the exact keyword [END_CONVO] in your response."
             )

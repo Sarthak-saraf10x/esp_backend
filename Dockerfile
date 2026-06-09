@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download the Piper TTS ONNX model and config directly
-RUN wget -O en_US-lessac-medium.onnx -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
-RUN wget -O en_US-lessac-medium.onnx.json -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+RUN wget -O en_US-lessac-low.onnx -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx
+RUN wget -O en_US-lessac-low.onnx.json -q https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx.json
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
