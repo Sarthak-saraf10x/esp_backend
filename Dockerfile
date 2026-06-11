@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Ensure print() output appears immediately in logs (no buffering)
+ENV PYTHONUNBUFFERED=1
+
 # Install system dependencies required for audio processing (ffmpeg) and building packages
 RUN apt-get update && apt-get install -y \
     ffmpeg \
