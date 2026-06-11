@@ -100,17 +100,22 @@ def process_audio_stream():
         header_text = clean_text_for_header(bot_text)
         print(f"Header text: {header_text}")
         
+        audio_data = generate_audio_stream(bot_text)
+        
         headers = {
             "X-Bot-Text": header_text,
             "Cache-Control": "no-cache",
-            "Content-Disposition": "inline"
+            "Content-Disposition": "inline",
+            "Content-Length": str(len(audio_data)),
         }
         
         if is_end_convo:
             headers["X-End-Conversation"] = "true"
         
+        print(f"Sending response: {len(audio_data)} bytes, Content-Length: {len(audio_data)}")
+        
         return Response(
-            generate_audio_stream(bot_text),
+            audio_data,
             mimetype="audio/wav",
             headers=headers
         )
