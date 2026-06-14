@@ -1,5 +1,18 @@
+<<<<<<< HEAD
 # ESP32-S3 Desktop Bot Backend
 
+=======
+---
+title: ESP Desktop Bot
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
+# ESP32-S3 Desktop Bot Backend
+>>>>>>> hf-deploy2
 This repository contains the backend service for an interactive, conversational ESP32-S3 Desktop Bot. The system is built with Flask/FastAPI and leverages Google Gemini, local machine learning models (Whisper and Piper), and the Model Context Protocol (MCP) to provide a rich, responsive voice assistant experience.
 
 ## Overview

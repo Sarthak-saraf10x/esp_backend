@@ -5,8 +5,23 @@ load_dotenv()
 
 class Config:
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    
+    # Multiple API keys for rotation to avoid rate limits
+    # Set GEMINI_API_KEYS as comma-separated keys in .env
+    # Falls back to single GEMINI_API_KEY if not set
+    @staticmethod
+    def get_api_keys():
+        keys_str = os.environ.get("GEMINI_API_KEYS", "")
+        if keys_str:
+            keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+            if keys:
+                return keys
+        # Fallback to single key
+        single = os.environ.get("GEMINI_API_KEY", "")
+        return [single] if single else []
+    
     WHISPER_MODEL_NAME = "tiny.en"
-    PIPER_VOICE_PATH = "./en_US-lessac-medium.onnx"
+    PIPER_VOICE_PATH = "./en_US-lessac-low.onnx"
     MCP_SERVER_SCRIPT = "./mcp_server.py"
     TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
