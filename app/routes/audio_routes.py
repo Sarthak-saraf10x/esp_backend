@@ -1,16 +1,10 @@
 import os
 import tempfile
 import asyncio
-<<<<<<< HEAD
-from flask import Blueprint, request, jsonify, Response
-from app.services.transcription import transcribe_audio
-from app.services.llm_agent import ask_gemini_with_mcp, sessions, gemini_client
-=======
 import time
 from flask import Blueprint, request, jsonify, Response
 from app.services.transcription import transcribe_audio
 from app.services.llm_agent import ask_gemini_with_mcp, sessions, key_manager, GeminiKeyManager, _is_rate_limit_error, _is_overload_error
->>>>>>> hf-deploy2
 from app.services.audio_generation import generate_audio_stream
 from app.utils.helpers import clean_text_for_header, get_pruned_history
 from app.config import Config
@@ -70,21 +64,6 @@ def process_audio_stream():
         try:
             bot_text = asyncio.run(ask_gemini_with_mcp(user_text, session_id))
         except Exception as e:
-<<<<<<< HEAD
-            print(f"MCP flow failed, falling back to basic chat: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
-            elif "503" in str(e) or "UNAVAILABLE" in str(e):
-                bot_text = "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
-            else:
-                try:
-                    history = sessions.get(session_id, [])
-                    chat = gemini_client.chats.create(
-                        model='gemini-2.5-flash',
-=======
             print(f"MCP flow failed, falling back to basic chat with key rotation: {e}")
             import traceback
             traceback.print_exc()
@@ -99,21 +78,11 @@ def process_audio_stream():
                     history = sessions.get(session_id, [])
                     chat = client.chats.create(
                         model=model_name,
->>>>>>> hf-deploy2
                         history=history
                     )
                     response = chat.send_message(user_text)
                     bot_text = response.text
                     sessions[session_id] = get_pruned_history(chat.get_history())
-<<<<<<< HEAD
-                except Exception as fallback_e:
-                    if "429" in str(fallback_e) or "RESOURCE_EXHAUSTED" in str(fallback_e):
-                        bot_text = "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
-                    elif "503" in str(fallback_e) or "UNAVAILABLE" in str(fallback_e):
-                        bot_text = "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
-                    else:
-                        raise fallback_e
-=======
                     break  # Success!
                 except Exception as fallback_e:
                     if _is_rate_limit_error(fallback_e):
@@ -129,7 +98,6 @@ def process_audio_stream():
             
             if bot_text is None:
                 bot_text = "I'm sorry, all my API keys are temporarily rate-limited. Please wait about a minute and try again. [END_CONVO]"
->>>>>>> hf-deploy2
             
         print(f"Bot: {bot_text}")
         
@@ -142,12 +110,6 @@ def process_audio_stream():
         header_text = clean_text_for_header(bot_text)
         print(f"Header text: {header_text}")
         
-<<<<<<< HEAD
-        headers = {
-            "X-Bot-Text": header_text,
-            "Cache-Control": "no-cache",
-            "Content-Disposition": "inline"
-=======
         audio_data = generate_audio_stream(bot_text)
         
         headers = {
@@ -155,21 +117,15 @@ def process_audio_stream():
             "Cache-Control": "no-cache",
             "Content-Disposition": "inline",
             "Content-Length": str(len(audio_data)),
->>>>>>> hf-deploy2
         }
         
         if is_end_convo:
             headers["X-End-Conversation"] = "true"
         
-<<<<<<< HEAD
-        return Response(
-            generate_audio_stream(bot_text),
-=======
         print(f"Sending response: {len(audio_data)} bytes, Content-Length: {len(audio_data)}")
         
         return Response(
             audio_data,
->>>>>>> hf-deploy2
             mimetype="audio/wav",
             headers=headers
         )

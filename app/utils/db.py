@@ -10,30 +10,6 @@ documents_collection = db["generated_documents"]
 
 def init_db():
     """Initialize the database with a default user profile if it doesn't exist."""
-<<<<<<< HEAD
-    if users_collection.count_documents({"user_id": "default_user"}) == 0:
-        users_collection.insert_one({
-            "user_id": "default_user",
-            "full_name": "Sarthak Saraf",
-            "role": "Lead Developer",
-            "telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", "8880692559"),
-            "document_signature": "Best regards,\nSarthak Saraf\nLead Developer"
-        })
-
-def get_user_profile(user_id="default_user"):
-    """Fetch the user profile."""
-    return users_collection.find_one({"user_id": user_id})
-
-def log_document(user_id, doc_type, file_path, summary):
-    """Log generated documents to the registry."""
-    documents_collection.insert_one({
-        "user_id": user_id,
-        "timestamp": datetime.datetime.utcnow(),
-        "document_type": doc_type,
-        "file_path": file_path,
-        "summary": summary
-    })
-=======
     if Config.MONGODB_URI:
         try:
             if users_collection.count_documents({"user_id": "default_user"}) == 0:
@@ -71,7 +47,6 @@ def log_document(user_id, doc_type, file_path, summary):
             })
     except Exception as e:
         print(f"Failed to log document to DB: {e}")
->>>>>>> hf-deploy2
 
 # Initialize the db on module load
 init_db()

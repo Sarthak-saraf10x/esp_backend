@@ -1,10 +1,7 @@
 import os
 import asyncio
-<<<<<<< HEAD
-=======
 import time
 import threading
->>>>>>> hf-deploy2
 from google import genai
 from google.genai import types
 import sys
@@ -15,14 +12,6 @@ from app.utils.helpers import get_pruned_history
 
 from app.utils.db import get_user_profile
 
-<<<<<<< HEAD
-print("Loading Gemini Model...")
-gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
-print("Gemini Model loaded.")
-
-sessions = {}
-
-=======
 # ============================================================
 # API Key Rotation System
 # Rotates through multiple free Gemini API keys to avoid
@@ -125,9 +114,6 @@ def _is_overload_error(e):
     """Check if an exception is a server overload error."""
     err_str = str(e)
     return any(code in err_str for code in ["503", "UNAVAILABLE", "overloaded"])
-
-
->>>>>>> hf-deploy2
 async def ask_gemini_with_mcp(user_text, session_id):
     server_params = StdioServerParameters(
         command=sys.executable,
@@ -167,86 +153,13 @@ async def ask_gemini_with_mcp(user_text, session_id):
                 "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to their phone via Telegram.\n"
                 "5. If the user asks for weather, restaurants, or local information without specifying a location, use the get_location tool to find their current location first.\n"
                 f"{profile_text}"
-<<<<<<< HEAD
-                "Remember your responses will be spoken aloud, so keep your conversational replies concise. "
-=======
                 "Remember your responses will be spoken aloud! To minimize processing delay, keep your conversational replies EXTREMELY concise (1-2 short sentences maximum). Never use bullet points or long paragraphs unless explicitly asked.\n"
->>>>>>> hf-deploy2
                 "IMPORTANT: If the user says goodbye, or if you are wrapping up the conversation naturally, "
                 "you MUST include the exact keyword [END_CONVO] in your response."
             )
             
             print(f"Sending query to Gemini with {len(gemini_tools)} tools...")
             
-<<<<<<< HEAD
-            chat = gemini_client.chats.create(
-                model="gemini-2.5-flash",
-                history=history,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0,
-                    tools=[{"function_declarations": gemini_tools}] if gemini_tools else None
-                )
-            )
-            
-            # Helper function for sending message with retries
-            def send_with_retry(content, max_retries=3):
-                for attempt in range(max_retries):
-                    try:
-                        return chat.send_message(content)
-                    except Exception as e:
-                        if attempt == max_retries - 1:
-                            raise e
-                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e) or "UNAVAILABLE" in str(e):
-                            import time
-                            time.sleep(2)
-                        else:
-                            raise e
-
-            try:
-                response = send_with_retry(user_text)
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
-                if "503" in str(e) or "UNAVAILABLE" in str(e):
-                    return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
-                raise e
-            
-            while response.function_calls:
-                tool_responses = []
-                for tool_call in response.function_calls:
-                    print(f"Gemini requested tool: {tool_call.name} with args: {tool_call.args}")
-                    try:
-                        result = await session.call_tool(
-                            tool_call.name,
-                            tool_call.args
-                        )
-                        result_text = result.content[0].text if result.content else "Executed successfully."
-                        print(f"Tool returned: {result_text}")
-                    except Exception as e:
-                        print(f"Tool error: {e}")
-                        result_text = f"Error: {e}"
-                        
-                    tool_responses.append(types.Part.from_function_response(
-                        name=tool_call.name,
-                        response={"result": result_text}
-                    ))
-                
-                print("Getting next response...")
-                try:
-                    response = send_with_retry(tool_responses)
-                except Exception as e:
-                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        return "I'm sorry, but I have reached my API rate limit. Please wait a minute and try again. [END_CONVO]"
-                    if "503" in str(e) or "UNAVAILABLE" in str(e):
-                        return "I'm sorry, but the model is currently experiencing high demand. Please try again later. [END_CONVO]"
-                    raise e
-            
-            sessions[session_id] = get_pruned_history(chat.get_history())
-            if response.text:
-                return response.text
-            return "I have completed the task."
-=======
             # ============================================================
             # Try with key rotation: if current key is rate-limited, 
             # automatically rotate to the next available key + model
@@ -332,4 +245,3 @@ async def ask_gemini_with_mcp(user_text, session_id):
             if last_error and (_is_rate_limit_error(last_error) or _is_overload_error(last_error)):
                 return "I'm sorry, all my API keys are temporarily rate-limited. Please wait about a minute and try again. [END_CONVO]"
             raise last_error
->>>>>>> hf-deploy2

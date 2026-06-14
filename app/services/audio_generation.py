@@ -75,15 +75,6 @@ def generate_audio_stream(text):
             output_path = out_temp.name
         
         # Generate audio with Piper
-<<<<<<< HEAD
-        with wave.open(raw_path, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(22050)
-            
-            # Synthesize audio stream
-            audio_stream = get_piper_voice().synthesize(text)
-=======
         voice = get_piper_voice()
         sample_rate = getattr(voice.config, 'sample_rate', 22050)
         print(f"Piper voice native sample rate: {sample_rate} Hz")
@@ -95,7 +86,6 @@ def generate_audio_stream(text):
             
             # Synthesize audio stream
             audio_stream = voice.synthesize(text)
->>>>>>> hf-deploy2
             
             # Process each audio chunk
             for audio_chunk in audio_stream:
