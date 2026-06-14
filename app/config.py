@@ -21,7 +21,11 @@ class Config:
         return [single] if single else []
     
     WHISPER_MODEL_NAME = "tiny.en"
-    PIPER_VOICE_PATH = "./en_US-lessac-low.onnx"
+    PIPER_VOICE_PATH = (
+        "./en_US-lessac-low.onnx"
+        if os.path.exists("./en_US-lessac-low.onnx")
+        else "./en_US-lessac-medium.onnx"
+    )
     MCP_SERVER_SCRIPT = "./mcp_server.py"
     TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
