@@ -1,7 +1,8 @@
-from app import create_app
-
-app = create_app()
+import asyncio
+from websocket_server import main
 
 if __name__ == "__main__":
-    print("Models loaded via services. Server ready.")
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nWebSocket Server stopped.")

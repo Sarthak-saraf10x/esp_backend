@@ -20,7 +20,7 @@ from app.utils.db import get_user_profile
 from app.utils.helpers import get_pruned_history
 
 # Global configurations
-PORT = 5001
+PORT = 5000
 HOST = "0.0.0.0"
 
 # Maintain chat history globally or per session
