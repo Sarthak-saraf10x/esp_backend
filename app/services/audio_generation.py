@@ -1,197 +1,142 @@
-import os
-import wave
-import struct
+"""
+Audio Generation Service (Streaming, No ffmpeg)
+-------------------------------------------------
+Synthesises text with Piper TTS and yields raw 16 kHz mono int16 PCM
+chunks for direct WebSocket binary frame transmission.
+
+Key changes from v1:
+  - No ffmpeg subprocess call (replaced with pure-numpy linear resample)
+  - No temp files written to disk
+  - Async generator: yields CHUNK_BYTES-sized PCM frames as they are ready
+  - Piper synthesis runs in a thread pool (asyncio.to_thread) so it does
+    not block the FastAPI event loop
+"""
+
+import asyncio
+import logging
 import numpy as np
-import tempfile
-import subprocess
+from typing import AsyncGenerator
 import piper
 from app.config import Config
 
-piper_voice = None
+logger = logging.getLogger(__name__)
 
-def get_piper_voice():
-    global piper_voice
-    if piper_voice is None:
-        print("Loading Piper Model...")
-        piper_voice = piper.PiperVoice.load(Config.PIPER_VOICE_PATH)
-        print("Piper Model loaded.")
-    return piper_voice
+# Size of each PCM chunk pushed over WebSocket (≈ 128 ms at 16 kHz mono int16)
+CHUNK_BYTES = 4096
 
-def generate_beep_wav(output_path):
-    """Generate a simple beep as fallback audio"""
+_voice: piper.PiperVoice | None = None
+
+
+def get_piper_voice() -> piper.PiperVoice:
+    global _voice
+    if _voice is None:
+        logger.info("[TTS] Loading Piper voice from %s ...", Config.PIPER_VOICE_PATH)
+        _voice = piper.PiperVoice.load(Config.PIPER_VOICE_PATH)
+        logger.info("[TTS] Piper voice loaded (native rate: %d Hz)",
+                    getattr(_voice.config, 'sample_rate', 22050))
+    return _voice
+
+
+# ---------------------------------------------------------------------------
+# Sync helpers (run inside asyncio.to_thread)
+# ---------------------------------------------------------------------------
+
+def _synth_to_pcm(text: str) -> tuple[bytes, int]:
+    """
+    Synthesise `text` synchronously with Piper.
+    Returns (raw_int16_pcm_bytes, native_sample_rate).
+    """
+    voice = get_piper_voice()
+    native_sr: int = getattr(voice.config, 'sample_rate', 22050)
+    buf = bytearray()
+
+    for chunk in voice.synthesize(text):
+        data: bytes | None = None
+
+        if hasattr(chunk, 'audio_int16_bytes') and chunk.audio_int16_bytes:
+            data = chunk.audio_int16_bytes
+        elif hasattr(chunk, '_audio_int16_bytes') and chunk._audio_int16_bytes:
+            data = chunk._audio_int16_bytes
+        elif hasattr(chunk, 'audio_int16_array') and chunk.audio_int16_array is not None:
+            data = chunk.audio_int16_array.tobytes()
+        elif hasattr(chunk, '_audio_int16_array') and chunk._audio_int16_array is not None:
+            data = chunk._audio_int16_array.tobytes()
+        elif hasattr(chunk, 'audio_float_array') and chunk.audio_float_array is not None:
+            arr = (chunk.audio_float_array * 32767.0).astype(np.int16)
+            data = arr.tobytes()
+
+        if data:
+            buf.extend(data)
+
+    return bytes(buf), native_sr
+
+
+def _resample_pcm(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
+    """
+    Linear resample int16 PCM from src_rate to dst_rate using numpy.
+    Quality is good enough for TTS speech; use `samplerate` library for
+    higher quality if needed (pip install samplerate).
+    """
+    if src_rate == dst_rate:
+        return pcm
+
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
+    new_length = int(round(len(samples) * dst_rate / src_rate))
+    old_indices = np.arange(len(samples))
+    new_indices = np.linspace(0, len(samples) - 1, new_length)
+    resampled = np.interp(new_indices, old_indices, samples)
+    return resampled.astype(np.int16).tobytes()
+
+
+def _generate_beep_pcm(sample_rate: int = 16000, duration: float = 0.3,
+                        frequency: float = 880.0) -> bytes:
+    """Fallback: a simple beep tone as raw PCM bytes."""
     import math
-    
-    sample_rate = 16000
-    duration = 1.0
-    frequency = 440
-    
-    with wave.open(output_path, 'wb') as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(sample_rate)
-        
-        num_samples = int(sample_rate * duration)
-        for i in range(num_samples):
-            t = float(i) / sample_rate
-            value = int(32767 * math.sin(2 * math.pi * frequency * t))
-            wav_file.writeframes(struct.pack('<h', value))
+    n = int(sample_rate * duration)
+    samples = [int(16000 * math.sin(2 * math.pi * frequency * i / sample_rate))
+               for i in range(n)]
+    return np.array(samples, dtype=np.int16).tobytes()
 
-def generate_beep_response():
-    """Generate a beep response file"""
-    beep_path = tempfile.NamedTemporaryFile(suffix="_beep.wav", delete=False).name
-    generate_beep_wav(beep_path)
-    
-    output_path = beep_path.replace('_beep.wav', '_beep_8khz.wav')
-    ffmpeg_cmd = [
-        "ffmpeg",
-        "-i", beep_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-c:a", "pcm_s16le",
-        "-f", "wav",
-        "-y",
-        output_path
-    ]
-    subprocess.run(ffmpeg_cmd, capture_output=True)
-    
-    if os.path.exists(beep_path):
-        os.unlink(beep_path)
-    
-    return output_path
 
-def generate_audio_stream(text):
-    """Generator function to stream audio chunks"""
-    print(f"Generating streaming audio for: {text}")
-    
-    raw_path = None
-    output_path = None
-    
+# ---------------------------------------------------------------------------
+# Public async generator
+# ---------------------------------------------------------------------------
+
+async def stream_tts_chunks(text: str) -> AsyncGenerator[bytes, None]:
+    """
+    Async generator: synthesise `text`, resample to 16 kHz if needed,
+    then yield CHUNK_BYTES-sized raw PCM frames for WebSocket transmission.
+
+    Usage:
+        async for chunk in stream_tts_chunks("Hello world"):
+            await websocket.send_bytes(chunk)
+    """
+    if not text or not text.strip():
+        return
+
     try:
-        # Create temporary files
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as raw_temp:
-            raw_path = raw_temp.name
-        
-        with tempfile.NamedTemporaryFile(suffix="_8khz.wav", delete=False) as out_temp:
-            output_path = out_temp.name
-        
-        # Generate audio with Piper
-        voice = get_piper_voice()
-        sample_rate = getattr(voice.config, 'sample_rate', 22050)
-        print(f"Piper voice native sample rate: {sample_rate} Hz")
-        
-        with wave.open(raw_path, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            
-            # Synthesize audio stream
-            audio_stream = voice.synthesize(text)
-            
-            # Process each audio chunk
-            for audio_chunk in audio_stream:
-                audio_data = None
-                
-                # Try each possible attribute that might contain audio data
-                if hasattr(audio_chunk, 'audio_int16_bytes') and audio_chunk.audio_int16_bytes:
-                    audio_data = audio_chunk.audio_int16_bytes
-                elif hasattr(audio_chunk, '_audio_int16_bytes') and audio_chunk._audio_int16_bytes:
-                    audio_data = audio_chunk._audio_int16_bytes
-                elif hasattr(audio_chunk, 'audio_int16_array') and audio_chunk.audio_int16_array is not None:
-                    audio_data = audio_chunk.audio_int16_array.tobytes()
-                elif hasattr(audio_chunk, '_audio_int16_array') and audio_chunk._audio_int16_array is not None:
-                    audio_data = audio_chunk._audio_int16_array.tobytes()
-                elif hasattr(audio_chunk, 'audio_float_array') and audio_chunk.audio_float_array is not None:
-                    float_array = audio_chunk.audio_float_array
-                    int16_array = (float_array * 32767).astype(np.int16)
-                    audio_data = int16_array.tobytes()
-                else:
-                    continue
-                
-                if audio_data:
-                    wav_file.writeframes(audio_data)
-        
-        # Check if we actually wrote audio data
-        raw_size = os.path.getsize(raw_path)
-        print(f"Raw audio generated, size: {raw_size} bytes")
-        
-        if raw_size <= 44:  # Just the header
-            print("ERROR: No audio data generated")
-            generate_beep_wav(raw_path)
-            print("Generated fallback beep")
-        
-        # Convert to 16kHz for ESP32 with explicit WAV format
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-i", raw_path,
-            "-ar", "16000",
-            "-ac", "1",
-            "-acodec", "pcm_s16le",
-            "-f", "wav",
-            "-bitexact",  # Force standard WAV header
-            "-flags", "+bitexact",
-            "-fflags", "+bitexact",
-            "-y",
-            output_path
-        ]
-        
-        print("Converting audio with ffmpeg...")
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"FFmpeg error: {result.stderr}")
-            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 44:
-                with open(raw_path, 'rb') as f:
-                    return f.read()
-            return b''
-        
-        # Verify the converted file has correct header
-        with open(output_path, 'rb') as f:
-            header = f.read(12)
-            if header[0:4] != b'RIFF':
-                print("ERROR: Converted file missing RIFF header")
-                # Try one more time with different ffmpeg options
-                ffmpeg_cmd = [
-                    "ffmpeg",
-                    "-i", raw_path,
-                    "-ar", "16000",
-                    "-ac", "1",
-                    "-c:a", "pcm_s16le",
-                    "-f", "wav",
-                    "-write_bext", "0",
-                    "-y",
-                    output_path
-                ]
-                subprocess.run(ffmpeg_cmd, capture_output=True)
-        
-        converted_size = os.path.getsize(output_path)
-        print(f"Converted audio size: {converted_size} bytes")
-        
-        if converted_size <= 44:
-            print("ERROR: Converted audio too small")
-            return b''
-        
-        # Read the converted file and return it
-        with open(output_path, 'rb') as f:
-            audio_bytes = f.read()
-                
-        print(f"Audio generation complete, returning {len(audio_bytes)} bytes")
-        return audio_bytes
-                
+        raw_pcm, native_sr = await asyncio.to_thread(_synth_to_pcm, text)
+
+        if len(raw_pcm) <= 0:
+            logger.warning("[TTS] Empty synthesis output for: '%s' — sending beep", text)
+            raw_pcm = _generate_beep_pcm()
+            native_sr = 16000
+
+        # Resample to 16 kHz (ESP32 speaker rate)
+        if native_sr != 16000:
+            raw_pcm = await asyncio.to_thread(_resample_pcm, raw_pcm, native_sr, 16000)
+
+        logger.info("[TTS] '%s' → %d bytes @ 16kHz", text[:40], len(raw_pcm))
+
+        # Yield in fixed-size chunks to keep WebSocket frames small
+        for offset in range(0, len(raw_pcm), CHUNK_BYTES):
+            yield raw_pcm[offset:offset + CHUNK_BYTES]
+            await asyncio.sleep(0)  # Yield event loop between frames
+
     except Exception as e:
-        print(f"Error in generate_audio_stream: {e}")
-        import traceback
-        traceback.print_exc()
-        try:
-            beep_path = generate_beep_response()
-            with open(beep_path, 'rb') as f:
-                return f.read()
-        except:
-            return b''
-        
-    finally:
-        for path in [raw_path, output_path]:
-            if path and os.path.exists(path):
-                try:
-                    os.unlink(path)
-                except Exception as e:
-                    print(f"Error cleaning up {path}: {e}")
+        logger.error("[TTS] Error synthesising '%s': %s", text[:40], e)
+        # Yield a beep so the ESP32 knows audio is coming
+        beep = _generate_beep_pcm()
+        for offset in range(0, len(beep), CHUNK_BYTES):
+            yield beep[offset:offset + CHUNK_BYTES]
+            await asyncio.sleep(0)
