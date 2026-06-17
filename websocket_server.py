@@ -71,7 +71,7 @@ async def handle_connection(websocket):
                 "1. If you need background information, use the web_search tool to gather facts first.\n"
                 "2. If you need specific personal details or scope from the user, ASK clarifying questions (interview the user) before generating.\n"
                 "3. If the user asks for a short message, draft, or text to be copied/sent to their phone (e.g. 'Draft a short text saying I will be 10 minutes late and copy it'), use the sync_text_to_clipboard tool. Do NOT create a full document for short messages.\n"
-                "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to their phone via Telegram.\n"
+                "4. If the user asks for a full document, report, or formal file, use the generate_document tool to create a .docx or .pdf file. The system will automatically deliver it to Sarthak's Gmail (gotosarthaks@gmail.com).\n"
                 "5. If the user asks for weather, restaurants, or local information without specifying a location, use the get_location tool to find their current location first.\n"
                 f"{profile_text}"
                 "Remember your responses will be spoken aloud! To minimize processing delay, keep your conversational replies EXTREMELY concise (1-2 short sentences maximum). Never use bullet points or long paragraphs unless explicitly asked.\n"

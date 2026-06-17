@@ -32,7 +32,7 @@ Your Registered Capabilities & Tools:
 3. Weather (`get_weather`): Fetch temperature and wind speed via Open-Meteo geocoding.
 4. User Location (`get_location`): Geolocate server IP address.
 5. Push to Clipboard (`sync_text_to_clipboard`): Push text directly to Sarthak's phone clipboard using Join API.
-6. Generate Document (`generate_document`): Create structured Word (.docx) or PDF files and deliver them to Sarthak's phone via Telegram.
+6. Generate Document (`generate_document`): Create structured Word (.docx) or PDF files and deliver them to Sarthak's Gmail (gotosarthaks@gmail.com).
 =========================================
 
 
@@ -40,7 +40,7 @@ Your Registered Capabilities & Tools:
 Name: Sarthak Rajesh Saraf
 Role: Student (MCA, 1st Year, 2025-26)
 Area of Interest: Artificial Intelligence, Machine Learning, AI/IoT.
-Email: [EMAIL_ADDRESS]
+Email: gotosarthaks@gmail.com
 Mobile No: +91 9373287144
 
 == Bot Woking ==

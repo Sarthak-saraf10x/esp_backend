@@ -159,7 +159,7 @@ async def stream_gemini_with_mcp(
         "1. If you need background information, use the web_search tool first.\n"
         "2. If you need specific personal details, ASK clarifying questions.\n"
         "3. For short messages to be copied/sent, use sync_text_to_clipboard.\n"
-        "4. For full documents, use generate_document (delivers via Telegram).\n"
+        "4. For full documents, use generate_document (delivers via Gmail).\n"
         "5. For weather/local info without location, use get_location first.\n"
         f"{profile_text}"
         "Remember: your responses are spoken aloud! Keep replies EXTREMELY concise "

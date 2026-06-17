@@ -46,6 +46,22 @@ def _add_formatted_text(paragraph, text):
             if clean_part:
                 paragraph.add_run(clean_part)
 
+def _sanitize_for_pdf(text: str) -> str:
+    if not text:
+        return ""
+    words = text.split(' ')
+    sanitized_words = []
+    for w in words:
+        if len(w) > 40:
+            if all(c in '-=_*' for c in w):
+                sanitized_words.append(w[:40])
+            else:
+                chunks = [w[i:i+40] for i in range(0, len(w), 40)]
+                sanitized_words.append(' '.join(chunks))
+        else:
+            sanitized_words.append(w)
+    return ' '.join(sanitized_words)
+
 def generate_pdf(title, content, output_dir="documents"):
     os.makedirs(output_dir, exist_ok=True)
     filename = f"{title.replace(' ', '_')}.pdf"
@@ -66,20 +82,21 @@ def generate_pdf(title, content, output_dir="documents"):
             
         if clean_p.startswith('# '):
             pdf.set_font("helvetica", size=14, style='B')
-            pdf.multi_cell(0, 7, text=clean_p[2:].replace('**', '').replace('*', ''))
+            clean_text = _sanitize_for_pdf(clean_p[2:].replace('**', '').replace('*', ''))
+            pdf.multi_cell(0, 7, text=clean_text)
             pdf.ln(3)
         elif clean_p.startswith('## '):
             pdf.set_font("helvetica", size=12, style='B')
-            pdf.multi_cell(0, 7, text=clean_p[3:].replace('**', '').replace('*', ''))
+            clean_text = _sanitize_for_pdf(clean_p[3:].replace('**', '').replace('*', ''))
+            pdf.multi_cell(0, 7, text=clean_text)
             pdf.ln(3)
         elif clean_p.startswith('- ') or clean_p.startswith('* '):
             pdf.set_font("helvetica", size=11)
-            # FPDF2 basic text, remove bold markers for simplicity in PDF
-            clean_text = clean_p[2:].replace('**', '').replace('*', '')
+            clean_text = _sanitize_for_pdf(clean_p[2:].replace('**', '').replace('*', ''))
             pdf.multi_cell(0, 7, text=f"• {clean_text}")
         else:
             pdf.set_font("helvetica", size=11)
-            clean_text = clean_p.replace('**', '').replace('*', '')
+            clean_text = _sanitize_for_pdf(clean_p.replace('**', '').replace('*', ''))
             pdf.multi_cell(0, 7, text=clean_text)
             
     pdf.output(filepath)

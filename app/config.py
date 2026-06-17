@@ -27,8 +27,8 @@ class Config:
         else "./en_US-lessac-medium.onnx"
     )
     MCP_SERVER_SCRIPT = "./mcp_server.py"
-    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+    GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+    RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "gotosarthaks@gmail.com")
     JOIN_API_KEY = os.environ.get("JOIN_API_KEY")
     JOIN_DEVICE_ID = os.environ.get("JOIN_DEVICE_ID")
     MONGODB_URI = os.environ.get("MONGODB_URI")

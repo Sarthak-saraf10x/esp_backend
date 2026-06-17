@@ -2,6 +2,9 @@ from mcp.server.fastmcp import FastMCP
 from datetime import datetime
 import httpx
 import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 mcp = FastMCP("ESP32 Tools Server")
 
@@ -133,23 +136,62 @@ def web_search(query: str, max_results: int = 3) -> str:
         
     return "\\n\\n".join(results_text)
 
-async def send_document_to_phone(filepath: str, caption: str = "Here is your generated document.") -> str:
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not bot_token or not chat_id or bot_token == "your_telegram_bot_token_here":
-        return "Telegram credentials not configured."
-        
-    url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+
+def _send_email_blocking(filepath: str, caption: str) -> str:
+    sender_email = "gotosarthaks@gmail.com"
+    receiver_email = os.environ.get("RECEIVER_EMAIL", "gotosarthaks@gmail.com")
+    app_password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not app_password:
+        return "Gmail app password not configured in environment."
+
+    app_password = app_password.replace(" ", "")
+
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = f"Generated Document: {os.path.basename(filepath)}"
+
+    body = f"Hello Sarthak,\n\nHere is your generated document: {os.path.basename(filepath)}.\n\nDescription: {caption}\n\nBest regards,\nESP32-S3 Bot"
+    msg.attach(MIMEText(body, 'plain'))
+
     try:
-        async with httpx.AsyncClient() as client:
-            with open(filepath, 'rb') as f:
-                files = {'document': (os.path.basename(filepath), f)}
-                data = {'chat_id': chat_id, 'caption': caption}
-                response = await client.post(url, data=data, files=files)
-                response.raise_for_status()
-                return "Successfully delivered to your phone via Telegram."
+        with open(filepath, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f"attachment; filename={os.path.basename(filepath)}",
+            )
+            msg.attach(part)
     except Exception as e:
-        return f"Document generated but delivery failed: {str(e)}"
+        import traceback
+        import sys
+        sys.stderr.write("[_send_email_blocking] Error attaching file:\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return f"Failed to attach file to email: {str(e)}"
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, app_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
+        return "Successfully delivered to your Gmail."
+    except Exception as e:
+        import traceback
+        import sys
+        sys.stderr.write("[_send_email_blocking] SMTP sending failed:\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return f"Document generated but Gmail delivery failed: {str(e)}"
+
+async def send_document_via_email(filepath: str, caption: str = "Here is your generated document.") -> str:
+    return await asyncio.to_thread(_send_email_blocking, filepath, caption)
 
 @mcp.tool()
 async def sync_text_to_clipboard(text: str) -> str:
@@ -178,31 +220,59 @@ async def sync_text_to_clipboard(text: str) -> str:
         return f"Error copying to clipboard: {str(e)}"
 
 @mcp.tool()
-async def generate_document(title: str, content: str, file_type: str, summary: str) -> str:
-    """Generate a formatted document (docx or pdf) and save it to the server.
+async def generate_document(title: str, content: str, file_type: str = "pdf", summary: str = "No summary") -> str:
+    """Generate a formatted document (docx or pdf), save it to the server, and automatically deliver it to Sarthak's Gmail (gotosarthaks@gmail.com).
     
     Args:
         title: The title of the document.
         content: The text content of the document (markdown supported).
-        file_type: 'docx' or 'pdf'
-        summary: A short summary of the document for the database registry.
+        file_type: The format of the file. Must be 'docx' or 'pdf'. Defaults to 'pdf'.
+        summary: A short summary of the document for the database registry. Defaults to 'No summary'.
     """
+    import sys
+    import traceback
+
+    # Normalize arguments to handle potential None values
+    file_type = (file_type or "pdf").lower()
+    summary = summary or "No summary"
+    title = title or "Untitled Document"
+    content = content or ""
+
     try:
-        if file_type.lower() == 'docx':
+        sys.stderr.write(f"[generate_document] Generating {file_type} document: Title='{title}', Summary='{summary}'\n")
+        sys.stderr.flush()
+
+        if file_type == 'docx':
             path = generate_docx(title, content)
             msg = f"Successfully generated Word document at {path}."
-        elif file_type.lower() == 'pdf':
+        elif file_type == 'pdf':
             path = generate_pdf(title, content)
             msg = f"Successfully generated PDF document at {path}."
         else:
+            sys.stderr.write(f"[generate_document] Unsupported file type: {file_type}\n")
+            sys.stderr.flush()
             return "Unsupported file type. Use 'docx' or 'pdf'."
             
         # Log to database
-        log_document("default_user", f"{file_type.upper()} Document", path, summary)
+        try:
+            log_document("default_user", f"{file_type.upper()} Document", path, summary)
+        except Exception as db_err:
+            sys.stderr.write(f"[generate_document] DB log failed: {db_err}\n")
+            sys.stderr.flush()
         
-        delivery_msg = await send_document_to_phone(path, caption=f"Here is your generated document: {title}")
+        sys.stderr.write(f"[generate_document] Delivering document: {path}\n")
+        sys.stderr.flush()
+
+        delivery_msg = await send_document_via_email(path, caption=f"Here is your generated document: {title}")
+        
+        sys.stderr.write(f"[generate_document] Delivery result: {delivery_msg}\n")
+        sys.stderr.flush()
+
         return f"{msg} Registry updated. {delivery_msg}"
     except Exception as e:
+        sys.stderr.write("[generate_document] Exception occurred:\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
         return f"Error generating document: {str(e)}"
 if __name__ == "__main__":
     mcp.run(transport='stdio')
