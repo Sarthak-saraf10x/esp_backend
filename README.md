@@ -16,6 +16,12 @@ pinned: false
 
 This repository contains the backend service for the **ESP32-S3 AI Desktop Bot**, an interactive, low-latency, voice-to-voice conversational artificial intelligence assistant and autonomous productivity agent. The backend leverages an asynchronous streaming pipeline to ingest audio, perform speech recognition, invoke cloud reasoning, interact with system tools using the Model Context Protocol (MCP), and synthesize real-time voice responses.
 
+<p align="center">
+  <img src="images/esp.jpg" alt="ESP32-S3 AI Desktop Bot" width="600"/>
+  <br/>
+  <em>ESP32-S3 AI Desktop Bot — Physical Build</em>
+</p>
+
 ---
 
 > [!IMPORTANT]
