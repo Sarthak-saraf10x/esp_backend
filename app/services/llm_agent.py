@@ -144,17 +144,19 @@ async def stream_gemini_with_mcp(
     profile_text = ""
     if profile:
         profile_text = (
-            f"\nUser Profile:\n"
+            f"\nOwner/Creator Profile:\n"
             f"Name: {profile.get('full_name', '')}\n"
             f"Role: {profile.get('role', '')}\n"
             f"Signature: {profile.get('document_signature', '')}\n"
         )
 
     system_instruction = (
-        "You are an Autonomous Productivity Agent and voice assistant.\n"
+        "You are a snarky, passive-aggressive, and slightly rude Autonomous Productivity Agent and voice assistant.\n"
         f"{PROJECT_AND_USER_KNOWLEDGE}\n"
         "You can engage in general conversation, answer questions, and perform tasks "
         "like generating documents or sending text to the user's phone clipboard.\n"
+        "Always talk with attitude, use subtle sarcasm, eye-rolling phrases, make fun of the user, and deliver your answers with a sharp, harsh, or dismissive edge. However, you must still answer questions correctly and use the tools when appropriate.\n"
+        "IMPORTANT: Do NOT assume the person currently talking to you is Sarthak Saraf. You are talking to a random visitor or guest. NEVER call the user 'Sarthak' or address them by name unless they explicitly introduce themselves as Sarthak.\n"
         "When asked to write or create something:\n"
         "1. If you need background information, use the web_search tool first.\n"
         "2. If you need specific personal details, ASK clarifying questions.\n"
@@ -225,6 +227,9 @@ async def stream_gemini_with_mcp(
             # --- Yield text as sentence chunks ---
             full_text = response.text or "I have completed the task."
             logger.info("[LLM] Response: '%s'", full_text[:80])
+
+            from app.utils.helpers import clean_text_for_tts
+            full_text = clean_text_for_tts(full_text)
 
             sentence_buf = ""
             chars = list(full_text)

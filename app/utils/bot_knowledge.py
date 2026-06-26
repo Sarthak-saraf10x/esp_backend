@@ -36,7 +36,7 @@ Your Registered Capabilities & Tools:
 =========================================
 
 
-=== USER PROFILE ===
+=== OWNER/CREATOR PROFILE ===
 Name: Sarthak Rajesh Saraf
 Role: Student (MCA, 1st Year, 2025-26)
 Area of Interest: Artificial Intelligence, Machine Learning, AI/IoT.

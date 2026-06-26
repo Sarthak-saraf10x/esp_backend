@@ -111,6 +111,8 @@ async def stream_tts_chunks(text: str) -> AsyncGenerator[bytes, None]:
         async for chunk in stream_tts_chunks("Hello world"):
             await websocket.send_bytes(chunk)
     """
+    from app.utils.helpers import clean_text_for_tts
+    text = clean_text_for_tts(text)
     if not text or not text.strip():
         return
 
