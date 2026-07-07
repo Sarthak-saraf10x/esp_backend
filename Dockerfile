@@ -28,4 +28,5 @@ COPY . .
 EXPOSE 7860
 
 # Command to run the application (Hugging Face Spaces defaults to 7860)
-CMD ["gunicorn", "--bind", "0.0.0.0:7860", "--workers", "1", "--threads", "2", "--timeout", "120", "run:app"]
+CMD ["uvicorn", "run:app", "--host", "0.0.0.0", "--port", "7860"]
+
