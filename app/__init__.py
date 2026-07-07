@@ -30,6 +30,17 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def _startup():
         await start_mcp_server()
+        
+        # Pre-load Piper TTS voice model to avoid first-use latency
+        try:
+            import asyncio
+            from app.services.audio_generation import get_piper_voice
+            startup_logger = logging.getLogger("app.startup")
+            startup_logger.info("Pre-loading Piper TTS voice model...")
+            await asyncio.to_thread(get_piper_voice)
+            startup_logger.info("Piper TTS voice model pre-loaded successfully.")
+        except Exception as e:
+            logging.getLogger("app.startup").error("Failed to pre-load Piper TTS voice: %s", e)
 
     # ── WebSocket route ─────────────────────────────────────────────────────
     from app.routes.ws_routes import router as ws_router
