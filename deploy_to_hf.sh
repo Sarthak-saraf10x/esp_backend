@@ -17,8 +17,12 @@ git branch -D hf-deploy2 2>/dev/null || true
 echo "Creating clean temporary release branch..."
 git checkout --orphan hf-release-temp
 
-# 4. Add all files (this respects .gitignore, so the 63MB ONNX files are excluded!)
+# Clear the index copied from main so .gitignore is fully respected
+git rm -rf --cached . --quiet
+
+# 4. Add all files (this respects .gitignore, so the 63MB ONNX files and other ignored files are excluded!)
 git add -A
+
 
 # 5. Commit the files
 git commit -m "Deploy build to Hugging Face Spaces"
